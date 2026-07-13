@@ -144,3 +144,33 @@ CHUNK_OVERLAP = config("CHUNK_OVERLAP", default=50, cast=int)
 LLM_API_BASE = config("LLM_API_BASE", default="")
 LLM_API_KEY = config("LLM_API_KEY", default="")
 LLM_MODEL = config("LLM_MODEL", default="")
+
+# ---------------------------------------------------------------------------
+# Reranker
+# ---------------------------------------------------------------------------
+
+RERANKER_MODEL = config("RERANKER_MODEL", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+# ---------------------------------------------------------------------------
+# Cache (Redis when available; falls back to in-memory so tests need no Redis)
+# ---------------------------------------------------------------------------
+
+REDIS_URL = config("REDIS_URL", default="")
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": 300,  # 5 minutes
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+# Query result cache TTL in seconds
+QUERY_CACHE_TTL = config("QUERY_CACHE_TTL", default=300, cast=int)

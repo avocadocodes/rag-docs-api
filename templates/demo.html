@@ -59,7 +59,7 @@
       color: #495057;
     }
 
-    input[type="text"], textarea {
+    input[type="text"], textarea, select {
       width: 100%;
       padding: 0.5rem 0.75rem;
       border: 1px solid #ced4da;
@@ -68,13 +68,41 @@
       font-family: inherit;
       margin-bottom: 0.75rem;
       resize: vertical;
+      background: #fff;
     }
 
-    input[type="text"]:focus, textarea:focus {
+    input[type="text"]:focus, textarea:focus, select:focus {
       outline: none;
       border-color: #0d6efd;
       box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
     }
+
+    .inline-row {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .inline-row .field {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .inline-row .field label { margin-bottom: 0.4rem; }
+    .inline-row .field input,
+    .inline-row .field select { margin-bottom: 0; }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .checkbox-row input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
+    .checkbox-row label { margin: 0; cursor: pointer; font-size: 0.875rem; color: #495057; }
 
     button {
       background: #0d6efd;
@@ -105,6 +133,13 @@
 
     .answer-box {
       margin-top: 1rem;
+    }
+
+    .badges {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
     }
 
     .answer-text {
@@ -157,11 +192,14 @@
       border-radius: 12px;
       font-size: 0.75rem;
       font-weight: 600;
-      margin-bottom: 0.75rem;
     }
 
-    .mode-extractive { background: #fff3cd; color: #664d03; }
-    .mode-llm        { background: #d1e7dd; color: #0f5132; }
+    .mode-extractive   { background: #fff3cd; color: #664d03; }
+    .mode-llm          { background: #d1e7dd; color: #0f5132; }
+    .mode-vector       { background: #cfe2ff; color: #084298; }
+    .mode-lexical      { background: #e2d9f3; color: #432874; }
+    .mode-hybrid       { background: #d1ecf1; color: #0c5460; }
+    .mode-reranked     { background: #fde8d8; color: #7a3d0a; }
 
     .docs-link {
       font-size: 0.85rem;
@@ -176,7 +214,7 @@
   <div class="container">
     <h1>RAG Docs API</h1>
     <p class="subtitle">
-      Semantic document search with grounded answers.
+      Hybrid semantic + lexical document search with grounded answers.
       &mdash; <a href="/api/docs/" target="_blank">API Docs (Swagger)</a>
       &middot; <a href="/api/schema/" target="_blank">OpenAPI Schema</a>
     </p>
@@ -204,17 +242,43 @@
       <input type="text" id="question" placeholder="e.g. What is the role of mitochondria?"
         onkeydown="if(event.key==='Enter') askQuestion()">
 
-      <label for="top-k">Top-K chunks</label>
-      <input type="text" id="top-k" value="5" style="width:80px;">
+      <div class="inline-row">
+        <div class="field">
+          <label for="top-k">Top-K chunks</label>
+          <input type="text" id="top-k" value="5" style="width:80px;">
+        </div>
+        <div class="field">
+          <label for="retrieval-mode">Retrieval mode</label>
+          <select id="retrieval-mode">
+            <option value="hybrid" selected>hybrid (vector + lexical)</option>
+            <option value="vector">vector only</option>
+            <option value="lexical">lexical only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="rerank" checked>
+        <label for="rerank">Cross-encoder rerank (more accurate, ~100 ms extra latency)</label>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="use-stream">
+        <label for="use-stream">Stream answer (Server-Sent Events)</label>
+      </div>
 
       <button id="query-btn" onclick="askQuestion()">Ask</button>
       <div id="query-status" class="status"></div>
 
       <div id="answer-box" class="answer-box" style="display:none;">
-        <div id="mode-badge" class="mode-badge"></div>
+        <div class="badges">
+          <span id="answer-mode-badge" class="mode-badge"></span>
+          <span id="retrieval-mode-badge" class="mode-badge"></span>
+          <span id="rerank-badge" class="mode-badge" style="display:none;"></span>
+        </div>
         <div class="answer-text" id="answer-text"></div>
 
-        <div class="citations" id="citations-section">
+        <div class="citations" id="citations-section" style="display:none;">
           <h3>Citations</h3>
           <div id="citations-list"></div>
         </div>
@@ -254,8 +318,7 @@
           showStatus(status, 'success',
             `Document ingested! ID: ${data.id}, ${data.chunk_count} chunks created.`);
         } else {
-          const msg = JSON.stringify(data, null, 2);
-          showStatus(status, 'error', `Error: ${msg}`);
+          showStatus(status, 'error', `Error: ${JSON.stringify(data, null, 2)}`);
         }
       } catch (err) {
         showStatus(status, 'error', `Network error: ${err.message}`);
@@ -267,6 +330,9 @@
     async function askQuestion() {
       const question = document.getElementById('question').value.trim();
       const topK = parseInt(document.getElementById('top-k').value, 10) || 5;
+      const mode = document.getElementById('retrieval-mode').value;
+      const rerank = document.getElementById('rerank').checked;
+      const useStream = document.getElementById('use-stream').checked;
       const status = document.getElementById('query-status');
       const btn = document.getElementById('query-btn');
       const answerBox = document.getElementById('answer-box');
@@ -280,11 +346,21 @@
       answerBox.style.display = 'none';
       showStatus(status, 'info', 'Searching…');
 
+      const body = JSON.stringify({ question, top_k: topK, mode, rerank });
+
+      if (useStream) {
+        await askStream(question, body, status, btn, answerBox, mode, rerank);
+      } else {
+        await askNormal(body, status, btn, answerBox);
+      }
+    }
+
+    async function askNormal(body, status, btn, answerBox) {
       try {
         const resp = await fetch('/api/v1/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, top_k: topK }),
+          body,
         });
 
         const data = await resp.json();
@@ -302,30 +378,106 @@
       }
     }
 
+    async function askStream(question, body, status, btn, answerBox, mode, rerank) {
+      try {
+        const resp = await fetch('/api/v1/query/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+
+        if (!resp.ok) {
+          const err = await resp.text();
+          showStatus(status, 'error', `Error: ${err}`);
+          btn.disabled = false;
+          return;
+        }
+
+        status.style.display = 'none';
+
+        // Show answer box with streaming badge
+        document.getElementById('answer-mode-badge').textContent = 'Streaming';
+        document.getElementById('answer-mode-badge').className = 'mode-badge mode-extractive';
+        document.getElementById('retrieval-mode-badge').textContent = mode;
+        document.getElementById('retrieval-mode-badge').className = `mode-badge mode-${mode}`;
+        const rerankBadge = document.getElementById('rerank-badge');
+        if (rerank) {
+          rerankBadge.textContent = 'reranked';
+          rerankBadge.className = 'mode-badge mode-reranked';
+          rerankBadge.style.display = '';
+        } else {
+          reankBadge.style.display = 'none';
+        }
+        const answerEl = document.getElementById('answer-text');
+        answerEl.textContent = '';
+        document.getElementById('citations-section').style.display = 'none';
+        answerBox.style.display = 'block';
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const fragment = line.slice(5).trim();
+            if (fragment === '[DONE]') { btn.disabled = false; return; }
+            answerEl.textContent += fragment.replace(/\\n/g, '\n');
+          }
+        }
+      } catch (err) {
+        showStatus(status, 'error', `Stream error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     function renderAnswer(data) {
       const box = document.getElementById('answer-box');
-      const badge = document.getElementById('mode-badge');
+      const answerModeBadge = document.getElementById('answer-mode-badge');
+      const retrievalModeBadge = document.getElementById('retrieval-mode-badge');
+      const rerankBadge = document.getElementById('rerank-badge');
       const answerEl = document.getElementById('answer-text');
       const citationsList = document.getElementById('citations-list');
+      const citationsSection = document.getElementById('citations-section');
 
-      badge.textContent = data.mode === 'llm' ? 'LLM-grounded answer' : 'Extractive answer';
-      badge.className = `mode-badge mode-${data.mode}`;
+      answerModeBadge.textContent = data.mode === 'llm' ? 'LLM-grounded answer' : 'Extractive answer';
+      answerModeBadge.className = `mode-badge mode-${data.mode}`;
+
+      retrievalModeBadge.textContent = data.retrieval_mode || 'hybrid';
+      retrievalModeBadge.className = `mode-badge mode-${data.retrieval_mode || 'hybrid'}`;
+
+      if (data.reranked) {
+        rerankBadge.textContent = 'reranked';
+        rerankBadge.className = 'mode-badge mode-reranked';
+        rerankBadge.style.display = '';
+      } else {
+        rerankBadge.style.display = 'none';
+      }
+
       answerEl.textContent = data.answer;
 
       citationsList.innerHTML = '';
       if (data.citations && data.citations.length > 0) {
+        citationsSection.style.display = '';
         data.citations.forEach((c, i) => {
           const div = document.createElement('div');
           div.className = 'citation-item';
           div.innerHTML = `
             <strong>[${i+1}] ${escapeHtml(c.document_title)}</strong>
             — chunk ${c.chunk_index}
-            <span class="citation-score">similarity: ${c.similarity.toFixed(3)}</span>
+            <span class="citation-score">score: ${c.similarity.toFixed(4)}</span>
           `;
           citationsList.appendChild(div);
         });
       } else {
-        citationsList.innerHTML = '<p style="color:#6c757d;font-size:.85rem;">No citations.</p>';
+        citationsSection.style.display = 'none';
       }
 
       box.style.display = 'block';

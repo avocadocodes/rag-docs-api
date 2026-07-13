@@ -35,6 +35,8 @@ class DocumentChunk(models.Model):
     text = models.TextField()
     # Stored as vector(384) in Postgres via migration; TextField in SQLite for tests.
     embedding = models.TextField()
+    # Stored as tsvector in Postgres via migration 0002; TextField in SQLite for tests.
+    search_vector = models.TextField(default="", blank=True)
 
     class Meta:
         unique_together = ("document", "chunk_index")

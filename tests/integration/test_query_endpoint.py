@@ -1,24 +1,32 @@
 """
-Integration tests for POST /api/v1/query.
+Integration tests for POST /api/v1/query and POST /api/v1/query/stream.
 
 The query endpoint uses PgvectorRetriever which requires PostgreSQL.
-For CI (SQLite), we mock the retriever and embedder so the endpoint's
-HTTP contract can be tested without any real DB vector ops.
+For CI (SQLite), we mock the retriever, embedder, and reranker so the
+endpoint's HTTP contract can be tested without any real DB vector ops
+or model loading.
 
-Verifies:
-  - 200 OK with correct shape
-  - citations present
+Covers:
+  - 200 OK with correct response shape (including new retrieval_mode, reranked fields)
   - extractive mode is the default
+  - citations match chunks
   - missing question returns 400
+  - top_k passed to retriever
+  - mode selection (vector / lexical / hybrid)
+  - rerank flag
+  - cache hit returns cached result
+  - streaming endpoint returns SSE events
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from django.test import Client
+from django.core.cache import cache
 import json
 
 from core.interfaces import ChunkResult
 from core.fake_embedder import FakeEmbedder
+from core.reranker import FakeReranker
 
 
 FAKE_CHUNKS = [
@@ -45,38 +53,64 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def patch_embedder_and_retriever():
+def clear_cache():
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def patch_embedder_retriever_reranker():
     fake_embedder = FakeEmbedder()
+    fake_reranker = FakeReranker()
 
     with (
         patch("query.views.get_embedder", return_value=fake_embedder),
-        patch("query.views.PgvectorRetriever") as mock_retriever_cls,
+        patch("query.views._get_reranker", return_value=fake_reranker),
+        patch("query.views.PgvectorRetriever") as mock_vector_cls,
+        patch("query.views.LexicalRetriever") as mock_lexical_cls,
+        patch("query.views.HybridRetriever") as mock_hybrid_cls,
     ):
-        mock_retriever = MagicMock()
-        mock_retriever.retrieve.return_value = FAKE_CHUNKS
-        mock_retriever_cls.return_value = mock_retriever
-        yield mock_retriever
+        mock_vector = MagicMock()
+        mock_vector.retrieve.return_value = FAKE_CHUNKS
+        mock_vector_cls.return_value = mock_vector
+
+        mock_lexical = MagicMock()
+        mock_lexical.retrieve.return_value = FAKE_CHUNKS
+        mock_lexical_cls.return_value = mock_lexical
+
+        mock_hybrid = MagicMock()
+        mock_hybrid.retrieve.return_value = FAKE_CHUNKS
+        mock_hybrid_cls.return_value = mock_hybrid
+
+        yield {
+            "vector": mock_vector,
+            "lexical": mock_lexical,
+            "hybrid": mock_hybrid,
+        }
+
+
+def _post_query(client, payload):
+    return client.post(
+        "/api/v1/query",
+        data=json.dumps(payload),
+        content_type="application/json",
+    )
 
 
 def test_query_returns_200(client):
-    resp = client.post(
-        "/api/v1/query",
-        data=json.dumps({"question": "What is a mitochondria?"}),
-        content_type="application/json",
-    )
+    resp = _post_query(client, {"question": "What is a mitochondria?"})
     assert resp.status_code == 200
 
 
 def test_query_response_shape(client):
-    resp = client.post(
-        "/api/v1/query",
-        data=json.dumps({"question": "What is a mitochondria?"}),
-        content_type="application/json",
-    )
+    resp = _post_query(client, {"question": "What is a mitochondria?"})
     data = resp.json()
     assert "answer" in data
     assert "citations" in data
     assert "mode" in data
+    assert "retrieval_mode" in data
+    assert "reranked" in data
     assert "retrieved_chunks" in data
     assert "question" in data
 
@@ -85,21 +119,12 @@ def test_query_mode_is_extractive_by_default(client, settings):
     settings.LLM_API_BASE = ""
     settings.LLM_API_KEY = ""
     settings.LLM_MODEL = ""
-
-    resp = client.post(
-        "/api/v1/query",
-        data=json.dumps({"question": "What is ATP?"}),
-        content_type="application/json",
-    )
+    resp = _post_query(client, {"question": "What is ATP?"})
     assert resp.json()["mode"] == "extractive"
 
 
 def test_query_citations_match_chunks(client):
-    resp = client.post(
-        "/api/v1/query",
-        data=json.dumps({"question": "Tell me about cells"}),
-        content_type="application/json",
-    )
+    resp = _post_query(client, {"question": "Tell me about cells"})
     data = resp.json()
     assert len(data["citations"]) == len(FAKE_CHUNKS)
     assert data["citations"][0]["document_title"] == "Biology 101"
@@ -107,21 +132,84 @@ def test_query_citations_match_chunks(client):
 
 
 def test_query_missing_question_returns_400(client):
-    resp = client.post(
-        "/api/v1/query",
-        data=json.dumps({}),
-        content_type="application/json",
-    )
+    resp = _post_query(client, {})
     assert resp.status_code == 400
 
 
-def test_query_top_k_passed_to_retriever(client, patch_embedder_and_retriever):
-    mock_retriever = patch_embedder_and_retriever
-    client.post(
-        "/api/v1/query",
-        data=json.dumps({"question": "test", "top_k": 7}),
+def test_query_top_k_passed_to_retriever(client, patch_embedder_retriever_reranker):
+    _post_query(client, {"question": "test", "top_k": 7, "mode": "vector", "rerank": False})
+    mock_vector = patch_embedder_retriever_reranker["vector"]
+    args, kwargs = mock_vector.retrieve.call_args
+    assert 7 in args or kwargs.get("top_k") == 7
+
+
+def test_query_vector_mode_uses_pgvector_retriever(client, patch_embedder_retriever_reranker):
+    _post_query(client, {"question": "test", "mode": "vector", "rerank": False})
+    assert patch_embedder_retriever_reranker["vector"].retrieve.called
+    assert not patch_embedder_retriever_reranker["lexical"].retrieve.called
+    assert not patch_embedder_retriever_reranker["hybrid"].retrieve.called
+
+
+def test_query_lexical_mode_uses_lexical_retriever(client, patch_embedder_retriever_reranker):
+    _post_query(client, {"question": "test", "mode": "lexical", "rerank": False})
+    assert patch_embedder_retriever_reranker["lexical"].retrieve.called
+    assert not patch_embedder_retriever_reranker["vector"].retrieve.called
+
+
+def test_query_hybrid_mode_is_default(client):
+    resp = _post_query(client, {"question": "test"})
+    assert resp.json()["retrieval_mode"] == "hybrid"
+
+
+def test_query_rerank_false_sets_reranked_false(client):
+    resp = _post_query(client, {"question": "test", "rerank": False})
+    assert resp.json()["reranked"] is False
+
+
+def test_query_rerank_true_sets_reranked_true(client):
+    resp = _post_query(client, {"question": "test", "rerank": True})
+    assert resp.json()["reranked"] is True
+
+
+def test_query_cache_hit_returns_same_result(client):
+    payload = {"question": "mitochondria?", "mode": "vector", "rerank": False}
+    resp1 = _post_query(client, payload)
+    resp2 = _post_query(client, payload)
+    assert resp1.json() == resp2.json()
+
+
+def test_query_cache_hit_skips_retriever(client, patch_embedder_retriever_reranker):
+    payload = {"question": "cached question", "mode": "vector", "rerank": False}
+    _post_query(client, payload)   # first call — populates cache
+    _post_query(client, payload)   # second call — should use cache
+
+    mock_vector = patch_embedder_retriever_reranker["vector"]
+    # Retriever should have been called exactly once (first request only)
+    assert mock_vector.retrieve.call_count == 1
+
+
+def test_stream_endpoint_returns_sse(client):
+    resp = client.post(
+        "/api/v1/query/stream",
+        data=json.dumps({"question": "What is ATP?", "mode": "vector", "rerank": False}),
         content_type="application/json",
     )
-    call_kwargs = mock_retriever.retrieve.call_args
-    # top_k should be 7
-    assert call_kwargs[0][1] == 7 or call_kwargs[1].get("top_k") == 7
+    assert resp.status_code == 200
+    content_type = resp.get("Content-Type", "")
+    assert "text/event-stream" in content_type
+
+
+def test_stream_endpoint_contains_data_lines(client):
+    resp = client.post(
+        "/api/v1/query/stream",
+        data=json.dumps({"question": "What is ATP?", "mode": "vector", "rerank": False}),
+        content_type="application/json",
+    )
+    body = b"".join(resp.streaming_content).decode()
+    assert "data:" in body
+    assert "[DONE]" in body
+
+
+def test_invalid_mode_returns_400(client):
+    resp = _post_query(client, {"question": "test", "mode": "neural"})
+    assert resp.status_code == 400

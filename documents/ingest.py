@@ -6,7 +6,8 @@ Responsibilities:
   2. Split the text into overlapping chunks (via core.chunker).
   3. Embed each chunk (via an EmbedderProtocol implementation).
   4. Bulk-create DocumentChunk rows.
-  5. Return the number of chunks created.
+  5. On Postgres, populate the search_vector (tsvector) column for full-text search.
+  6. Return the number of chunks created.
 
 Dependency injection: the embedder is passed in rather than imported
 directly so that tests can supply a FakeEmbedder without touching settings
@@ -14,6 +15,8 @@ or loading sentence-transformers.
 """
 
 from __future__ import annotations
+
+from django.db import connection
 
 from core.chunker import chunk_text
 from core.interfaces import EmbedderProtocol
@@ -28,7 +31,6 @@ def ingest_document(document: Document, embedder: EmbedderProtocol) -> int:
 
     Returns the number of chunks created.
     """
-    # Remove any stale chunks from a previous ingest
     document.chunks.all().delete()
 
     texts = chunk_text(document.raw_text)
@@ -46,4 +48,17 @@ def ingest_document(document: Document, embedder: EmbedderProtocol) -> int:
     ]
 
     DocumentChunk.objects.bulk_create(chunks)
+
+    # Populate tsvector column on Postgres so lexical search works immediately.
+    if connection.vendor == "postgresql":
+        DocumentChunk.objects.filter(document=document).update(
+            search_vector=_tsvector_expr()
+        )
+
     return len(chunks)
+
+
+def _tsvector_expr():
+    """Return a RawSQL expression that converts chunk text to tsvector."""
+    from django.db.models.expressions import RawSQL  # noqa: PLC0415
+    return RawSQL("to_tsvector('english', text)", [])

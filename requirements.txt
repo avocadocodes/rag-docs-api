@@ -8,6 +8,7 @@ sentence-transformers==2.7.0
 gunicorn==22.0.0
 python-decouple==3.8
 requests==2.32.3
+redis==5.0.8
 
 # dev / test
 pytest==8.2.2

@@ -1,5 +1,5 @@
 """
-Abstract interfaces for the embedding and retrieval layers.
+Abstract interfaces for the embedding, retrieval, and reranking layers.
 
 These exist so that tests can inject lightweight fakes without touching
 the real sentence-transformers model or a live PostgreSQL/pgvector database.
@@ -43,4 +43,11 @@ class RetrieverProtocol(Protocol):
     """Finds the top-k most similar chunks for a query embedding."""
 
     def retrieve(self, query_embedding: list[float], top_k: int) -> list[ChunkResult]:
+        ...
+
+
+class RerankerProtocol(Protocol):
+    """Reorders a list of candidate chunks by query-chunk relevance."""
+
+    def rerank(self, query: str, chunks: list[ChunkResult]) -> list[ChunkResult]:
         ...

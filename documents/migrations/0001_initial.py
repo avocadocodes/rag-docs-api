@@ -117,13 +117,16 @@ class Migration(migrations.Migration):
             reverse_sql="ALTER TABLE documents_documentchunk ALTER COLUMN embedding TYPE text;",
         ),
 
-        # IVFFlat index for cosine similarity
+        # HNSW index for cosine similarity. HNSW gives near-exact recall with
+        # default search parameters and, unlike IVFFlat, does not degrade on
+        # small collections (IVFFlat with lists >> rows and probes=1 misses most
+        # neighbours). Suitable from a handful of rows up to millions.
         _ConditionalSQL(
             sql="""
                 CREATE INDEX IF NOT EXISTS documentchunk_embedding_cosine_idx
                 ON documents_documentchunk
-                USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 100);
+                USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 64);
             """,
             reverse_sql="DROP INDEX IF EXISTS documentchunk_embedding_cosine_idx;",
         ),
