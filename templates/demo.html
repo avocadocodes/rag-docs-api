@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Docs API — Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #212529;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtitle {
+      color: #6c757d;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
+
+    .subtitle a {
+      color: #0d6efd;
+      text-decoration: none;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.4rem;
+      color: #495057;
+    }
+
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      margin-bottom: 0.75rem;
+      resize: vertical;
+    }
+
+    input[type="text"]:focus, textarea:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
+    }
+
+    button {
+      background: #0d6efd;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #0b5ed7; }
+    button:disabled { background: #6ea8fe; cursor: not-allowed; }
+
+    .status {
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      display: none;
+    }
+
+    .status.success { background: #d1e7dd; color: #0f5132; display: block; }
+    .status.error   { background: #f8d7da; color: #842029; display: block; }
+    .status.info    { background: #cff4fc; color: #055160; display: block; }
+
+    .answer-box {
+      margin-top: 1rem;
+    }
+
+    .answer-text {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 1rem;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      min-height: 80px;
+    }
+
+    .citations {
+      margin-top: 1rem;
+    }
+
+    .citations h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .citation-item {
+      background: #f8f9fa;
+      border-left: 3px solid #0d6efd;
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0 6px 6px 0;
+      font-size: 0.85rem;
+    }
+
+    .citation-item strong { color: #212529; }
+    .citation-score {
+      display: inline-block;
+      background: #e9ecef;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      margin-left: 0.5rem;
+      color: #495057;
+    }
+
+    .mode-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    .mode-extractive { background: #fff3cd; color: #664d03; }
+    .mode-llm        { background: #d1e7dd; color: #0f5132; }
+
+    .docs-link {
+      font-size: 0.85rem;
+      color: #6c757d;
+      margin-top: 1rem;
+    }
+
+    .docs-link a { color: #0d6efd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>RAG Docs API</h1>
+    <p class="subtitle">
+      Semantic document search with grounded answers.
+      &mdash; <a href="/api/docs/" target="_blank">API Docs (Swagger)</a>
+      &middot; <a href="/api/schema/" target="_blank">OpenAPI Schema</a>
+    </p>
+
+    <!-- Ingest Panel -->
+    <div class="card">
+      <h2>1. Ingest a Document</h2>
+
+      <label for="doc-title">Title</label>
+      <input type="text" id="doc-title" placeholder="e.g. Cell Biology Overview">
+
+      <label for="doc-text">Document Text</label>
+      <textarea id="doc-text" rows="8"
+        placeholder="Paste the document text here. It will be split into overlapping chunks, embedded with a local sentence-transformer model, and stored in pgvector for retrieval."></textarea>
+
+      <button id="ingest-btn" onclick="ingestDocument()">Ingest Document</button>
+      <div id="ingest-status" class="status"></div>
+    </div>
+
+    <!-- Query Panel -->
+    <div class="card">
+      <h2>2. Ask a Question</h2>
+
+      <label for="question">Question</label>
+      <input type="text" id="question" placeholder="e.g. What is the role of mitochondria?"
+        onkeydown="if(event.key==='Enter') askQuestion()">
+
+      <label for="top-k">Top-K chunks</label>
+      <input type="text" id="top-k" value="5" style="width:80px;">
+
+      <button id="query-btn" onclick="askQuestion()">Ask</button>
+      <div id="query-status" class="status"></div>
+
+      <div id="answer-box" class="answer-box" style="display:none;">
+        <div id="mode-badge" class="mode-badge"></div>
+        <div class="answer-text" id="answer-text"></div>
+
+        <div class="citations" id="citations-section">
+          <h3>Citations</h3>
+          <div id="citations-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="docs-link">
+      Full API reference: <a href="/api/docs/">/api/docs/</a>
+    </p>
+  </div>
+
+  <script>
+    async function ingestDocument() {
+      const title = document.getElementById('doc-title').value.trim();
+      const text  = document.getElementById('doc-text').value.trim();
+      const status = document.getElementById('ingest-status');
+      const btn = document.getElementById('ingest-btn');
+
+      if (!title || !text) {
+        showStatus(status, 'error', 'Please fill in both title and document text.');
+        return;
+      }
+
+      btn.disabled = true;
+      showStatus(status, 'info', 'Ingesting… this may take a moment while the model embeds the chunks.');
+
+      try {
+        const resp = await fetch('/api/v1/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, raw_text: text }),
+        });
+
+        const data = await resp.json();
+
+        if (resp.ok) {
+          showStatus(status, 'success',
+            `Document ingested! ID: ${data.id}, ${data.chunk_count} chunks created.`);
+        } else {
+          const msg = JSON.stringify(data, null, 2);
+          showStatus(status, 'error', `Error: ${msg}`);
+        }
+      } catch (err) {
+        showStatus(status, 'error', `Network error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function askQuestion() {
+      const question = document.getElementById('question').value.trim();
+      const topK = parseInt(document.getElementById('top-k').value, 10) || 5;
+      const status = document.getElementById('query-status');
+      const btn = document.getElementById('query-btn');
+      const answerBox = document.getElementById('answer-box');
+
+      if (!question) {
+        showStatus(status, 'error', 'Please enter a question.');
+        return;
+      }
+
+      btn.disabled = true;
+      answerBox.style.display = 'none';
+      showStatus(status, 'info', 'Searching…');
+
+      try {
+        const resp = await fetch('/api/v1/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, top_k: topK }),
+        });
+
+        const data = await resp.json();
+
+        if (resp.ok) {
+          status.style.display = 'none';
+          renderAnswer(data);
+        } else {
+          showStatus(status, 'error', `Error: ${JSON.stringify(data)}`);
+        }
+      } catch (err) {
+        showStatus(status, 'error', `Network error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderAnswer(data) {
+      const box = document.getElementById('answer-box');
+      const badge = document.getElementById('mode-badge');
+      const answerEl = document.getElementById('answer-text');
+      const citationsList = document.getElementById('citations-list');
+
+      badge.textContent = data.mode === 'llm' ? 'LLM-grounded answer' : 'Extractive answer';
+      badge.className = `mode-badge mode-${data.mode}`;
+      answerEl.textContent = data.answer;
+
+      citationsList.innerHTML = '';
+      if (data.citations && data.citations.length > 0) {
+        data.citations.forEach((c, i) => {
+          const div = document.createElement('div');
+          div.className = 'citation-item';
+          div.innerHTML = `
+            <strong>[${i+1}] ${escapeHtml(c.document_title)}</strong>
+            — chunk ${c.chunk_index}
+            <span class="citation-score">similarity: ${c.similarity.toFixed(3)}</span>
+          `;
+          citationsList.appendChild(div);
+        });
+      } else {
+        citationsList.innerHTML = '<p style="color:#6c757d;font-size:.85rem;">No citations.</p>';
+      }
+
+      box.style.display = 'block';
+    }
+
+    function showStatus(el, type, msg) {
+      el.className = `status ${type}`;
+      el.textContent = msg;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
