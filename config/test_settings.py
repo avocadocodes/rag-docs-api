@@ -32,6 +32,8 @@ RERANKER_BACKEND = "fake"
 LLM_API_BASE = ""
 LLM_API_KEY = ""
 LLM_MODEL = ""
+VERIFIER_BACKEND = "fake"
+FAITHFULNESS_THRESHOLD = 0.5
 
 # Use locmem cache (no Redis needed)
 CACHES = {
@@ -39,3 +41,5 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 }
+
+RELEVANCE_THRESHOLD = 0.0

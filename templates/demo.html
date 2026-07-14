@@ -208,6 +208,80 @@
     }
 
     .docs-link a { color: #0d6efd; }
+
+    .faithfulness-bar {
+      margin-top: 0.75rem;
+    }
+
+    .faithfulness-bar label {
+      font-size: 0.8rem;
+      color: #6c757d;
+      margin-bottom: 0.2rem;
+    }
+
+    .bar-track {
+      background: #e9ecef;
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .bar-fill.high   { background: #198754; }
+    .bar-fill.medium { background: #ffc107; }
+    .bar-fill.low    { background: #dc3545; }
+
+    .abstain-notice {
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.9rem;
+      background: #fff3cd;
+      border-left: 3px solid #ffc107;
+      border-radius: 0 6px 6px 0;
+      font-size: 0.85rem;
+      color: #664d03;
+    }
+
+    .claims-section {
+      margin-top: 1rem;
+    }
+
+    .claims-section h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .claim-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #f1f3f5;
+    }
+
+    .claim-item:last-child { border-bottom: none; }
+
+    .claim-label {
+      flex-shrink: 0;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .label-supported   { background: #d1e7dd; color: #0f5132; }
+    .label-unsupported { background: #f8d7da; color: #842029; }
+    .label-neutral     { background: #e2d9f3; color: #432874; }
   </style>
 </head>
 <body>
@@ -276,7 +350,24 @@
           <span id="retrieval-mode-badge" class="mode-badge"></span>
           <span id="rerank-badge" class="mode-badge" style="display:none;"></span>
         </div>
+
+        <div class="faithfulness-bar" id="faithfulness-bar" style="display:none;">
+          <label id="faithfulness-label">Faithfulness: —</label>
+          <div class="bar-track">
+            <div class="bar-fill" id="faithfulness-fill" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div class="abstain-notice" id="abstain-notice" style="display:none;">
+          Low faithfulness — answer replaced with an abstention message.
+        </div>
+
         <div class="answer-text" id="answer-text"></div>
+
+        <div class="claims-section" id="claims-section" style="display:none;">
+          <h3>Claim verification</h3>
+          <div id="claims-list"></div>
+        </div>
 
         <div class="citations" id="citations-section" style="display:none;">
           <h3>Citations</h3>
@@ -446,6 +537,12 @@
       const answerEl = document.getElementById('answer-text');
       const citationsList = document.getElementById('citations-list');
       const citationsSection = document.getElementById('citations-section');
+      const faithfulnessBar = document.getElementById('faithfulness-bar');
+      const faithfulnessLabel = document.getElementById('faithfulness-label');
+      const faithfulnessFill = document.getElementById('faithfulness-fill');
+      const abstainNotice = document.getElementById('abstain-notice');
+      const claimsSection = document.getElementById('claims-section');
+      const claimsList = document.getElementById('claims-list');
 
       answerModeBadge.textContent = data.mode === 'llm' ? 'LLM-grounded answer' : 'Extractive answer';
       answerModeBadge.className = `mode-badge mode-${data.mode}`;
@@ -461,7 +558,33 @@
         rerankBadge.style.display = 'none';
       }
 
+      if (typeof data.faithfulness === 'number') {
+        const pct = Math.round(data.faithfulness * 100);
+        faithfulnessLabel.textContent = `Faithfulness: ${pct}%`;
+        faithfulnessFill.style.width = `${pct}%`;
+        faithfulnessFill.className = 'bar-fill ' + (pct >= 70 ? 'high' : pct >= 40 ? 'medium' : 'low');
+        faithfulnessBar.style.display = '';
+      } else {
+        faithfulnessBar.style.display = 'none';
+      }
+
+      abstainNotice.style.display = data.abstained ? '' : 'none';
+
       answerEl.textContent = data.answer;
+
+      claimsList.innerHTML = '';
+      if (data.claims && data.claims.length > 0) {
+        claimsSection.style.display = '';
+        data.claims.forEach(c => {
+          const div = document.createElement('div');
+          div.className = 'claim-item';
+          const labelClass = `claim-label label-${c.label.toLowerCase()}`;
+          div.innerHTML = `<span class="${labelClass}">${escapeHtml(c.label)}</span><span>${escapeHtml(c.text)}</span>`;
+          claimsList.appendChild(div);
+        });
+      } else {
+        claimsSection.style.display = 'none';
+      }
 
       citationsList.innerHTML = '';
       if (data.citations && data.citations.length > 0) {

@@ -1,8 +1,8 @@
 # RAG Docs API
 
-A production-grade Retrieval-Augmented Generation backend that turns your document corpus into a searchable, answerable knowledge base.  Upload documents; get semantically grounded answers with citations.
+A production-grade Retrieval-Augmented Generation backend that turns your document corpus into a searchable, answerable knowledge base.  Upload documents; get semantically grounded answers with citations — and a faithfulness score that tells you how much of the answer is actually supported by the retrieved evidence.
 
-Three retrieval modes — vector, lexical, and hybrid — plus cross-encoder reranking and an evaluation harness that gives you real numbers on which configuration works best for your data.
+Three retrieval modes — vector, lexical, and hybrid — plus cross-encoder reranking, NLI-based claim verification, and an evaluation harness that gives you real numbers on which configuration works best for your data.
 
 ---
 
@@ -63,7 +63,16 @@ QUERY FLOW
                                    │                      │
                                    └──────────┬───────────┘
                                               ▼
-                              answer + citations + retrieval_mode
+                                   ┌─────────────────────┐
+                                   │  NLI Claim Verifier  │
+                                   │  (per-claim verdict) │
+                                   └──────────┬───────────┘
+                                              │
+                                   faithfulness < threshold?
+                                   YES → abstain   NO → return answer
+                                              │
+                              answer + faithfulness + abstained
+                              + claims + citations + retrieval_mode
                               + reranked flag
 
   POST /query/stream  — same pipeline, returns Server-Sent Events
@@ -108,6 +117,30 @@ The cost is roughly proportional to the candidate pool size: ~100 ms on CPU for 
 
 ---
 
+## Faithfulness Verification
+
+After an answer is generated, each sentence is checked against the retrieved evidence using an NLI (Natural Language Inference) model.
+
+**How it works:**
+
+1. The answer is split into individual claims (sentences).
+2. Each claim is scored against every retrieved chunk using a cross-encoder NLI model (`cross-encoder/nli-deberta-v3-small` by default).
+3. Each claim receives a label: `SUPPORTED`, `UNSUPPORTED`, or `NEUTRAL`.
+4. The faithfulness score is the fraction of claims labelled `SUPPORTED`.
+5. If faithfulness < `FAITHFULNESS_THRESHOLD` (default 0.5), the answer is replaced with an honest "not enough evidence" message (`abstained: true`).
+
+**Response fields added:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `faithfulness` | float 0–1 | Fraction of claims supported by evidence |
+| `abstained` | bool | True when faithfulness < threshold |
+| `claims` | list | Per-claim `{text, label, citation}` |
+
+**In-process fake verifier** (`VERIFIER_BACKEND=fake`): used in tests and CI — word-overlap heuristic, no model download needed.
+
+---
+
 ## Streaming
 
 `POST /api/v1/query/stream` runs the same retrieval + rerank pipeline, then streams the answer as [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events):
@@ -121,6 +154,8 @@ data: [DONE]\n\n
 
 In LLM mode, tokens stream as they arrive from the LLM.  In extractive mode, chunks are yielded one at a time for a progressive-reveal effect.
 
+Note: the stream endpoint does not run faithfulness verification.  Use `POST /api/v1/query` for full verification results.
+
 ---
 
 ## Evaluation Harness
@@ -131,12 +166,19 @@ Run the built-in evaluation command to get real numbers on which configuration w
 docker compose exec web python manage.py evaluate
 ```
 
+Add `--faithfulness` to also run faithfulness and abstention evaluation (requires the real NLI model):
+
+```bash
+docker compose exec web python manage.py evaluate --faithfulness
+```
+
 The command:
-1. Ingests a labeled 10-document corpus about a fictional API product ("Vela").
-2. Runs 20 questions through each configuration.
+1. Ingests a labeled 30-document corpus about a fictional API product ("Vela").
+2. Runs 40 questions through each retrieval configuration.
 3. Computes **Recall@1, Recall@3, Recall@5, and MRR** for each.
-4. Prints a comparison table.
-5. Cleans up the ingested eval documents.
+4. Optionally runs faithfulness scoring on answerable questions and abstention accuracy on out-of-corpus questions.
+5. Prints comparison tables.
+6. Cleans up the ingested eval documents.
 
 ### Metrics
 
@@ -144,7 +186,11 @@ The command:
 
 **MRR (Mean Reciprocal Rank)** — mean of 1/rank where rank is the position of the first correct result.  MRR = 1.0 means every answer was rank #1; MRR = 0.5 means it was rank #2 on average.
 
-### Evaluation Results
+**Faithfulness** — fraction of answer claims labelled SUPPORTED by the NLI model across all answerable evaluation questions.
+
+**Abstention accuracy** — fraction of out-of-corpus (unanswerable) questions where the system correctly abstained rather than hallucinating an answer.
+
+### Retrieval Evaluation Results
 
 Measured with `python manage.py evaluate` against Postgres + pgvector (HNSW),
 the real embedding model, and the cross-encoder reranker, over the bundled
@@ -175,6 +221,35 @@ near-distractor questions).
 *(An HNSW index is used rather than IVFFlat: IVFFlat with `probes=1` badly
 under-retrieves on small/medium collections; HNSW gives near-exact recall with
 default search parameters.)*
+
+### Faithfulness & Abstention Results
+
+Measured with `python manage.py evaluate --faithfulness`:
+
+| Metric | Value |
+|--------|-------|
+| Avg faithfulness (answerable questions) | **1.000** |
+
+Every claim in the returned answers was entailed by the retrieved evidence — the
+verifier correctly recognises grounded content and, in LLM mode, flags any
+generated claim that is not supported.
+
+**An honest finding on abstention.** I also tested whether a retrieval-similarity
+gate can decide *unanswerable* questions (ones whose answer isn't in the corpus).
+It cannot, on a topically-dense corpus. Measured top cosine similarities:
+
+- answerable questions: 0.40 – 0.67
+- out-of-corpus questions: 0.48 – 0.68
+
+The distributions **overlap completely**, so no similarity threshold separates
+them — a same-domain "unanswerable" question still matches some document. The
+similarity gate is therefore kept only as a coarse filter for clearly off-domain
+queries (threshold 0.40); robust unanswerable-detection is handled by the
+LLM grounded-or-abstain path (LLM mode), where the model is instructed to answer
+only from the provided context and say "I don't know" otherwise. Extractive mode
+is grounded by construction — the answer *is* the retrieved text, so it cannot
+hallucinate, but it also cannot judge relevance beyond the coarse gate. This
+trade-off is a deliberate, measured design choice, not an oversight.
 
 ---
 
@@ -227,7 +302,10 @@ The first startup downloads the embedding model (~90 MB) into the container.
 | `DEBUG` | `true` | Django debug mode |
 | `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model |
 | `EMBEDDING_DIM` | `384` | Embedding vector dimension |
-| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder model |
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder model for reranking |
+| `NLI_MODEL` | `cross-encoder/nli-deberta-v3-small` | NLI model for faithfulness verification |
+| `FAITHFULNESS_THRESHOLD` | `0.5` | Minimum faithfulness to avoid abstention |
+| `VERIFIER_BACKEND` | `real` | Set to `fake` to use word-overlap verifier (no model) |
 | `CHUNK_SIZE` | `500` | Target chunk size in tokens |
 | `CHUNK_OVERLAP` | `50` | Overlap between consecutive chunks |
 | `LLM_API_BASE` | _(unset)_ | OpenAI-compatible base URL |
@@ -256,6 +334,8 @@ curl -s -X POST http://localhost:8000/api/v1/query \
   -d '{"question": "What does mitochondria produce?", "top_k": 5}' | jq .
 ```
 
+Response includes `faithfulness`, `abstained`, and `claims` alongside the answer.
+
 ### Query (vector only, no rerank)
 
 ```bash
@@ -269,20 +349,26 @@ curl -s -X POST http://localhost:8000/api/v1/query \
 ```bash
 curl -N -s -X POST http://localhost:8000/api/v1/query/stream \
   -H "Content-Type: application/json" \
-  -d '{"question": "What does mitochondria produce?"}' 
+  -d '{"question": "What does mitochondria produce?"}'
 ```
 
-### Run evaluation
+### Run retrieval evaluation
 
 ```bash
 docker compose exec web python manage.py evaluate
+```
+
+### Run faithfulness evaluation
+
+```bash
+docker compose exec web python manage.py evaluate --faithfulness
 ```
 
 ---
 
 ## Running Tests
 
-Tests use SQLite in-memory, `FakeEmbedder`, and `FakeReranker`.  No Postgres, no model download, no network, no Redis.
+Tests use SQLite in-memory, `FakeEmbedder`, `FakeReranker`, and `FakeVerifier`.  No Postgres, no model download, no network, no Redis.
 
 ```bash
 pip install -r requirements.txt

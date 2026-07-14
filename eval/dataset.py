@@ -829,3 +829,27 @@ QUESTIONS: list[EvalQuestion] = [
         # means; both together fully answer the question.
     ),
 ]
+
+
+OUT_OF_CORPUS_QUESTIONS: list[EvalQuestion] = [
+    EvalQuestion(
+        question="How do I configure Vela to push container images to Docker Hub?",
+        relevant_doc_ids=[],
+    ),
+    EvalQuestion(
+        question="What is the maximum file size for a Vela artifact when using S3-compatible storage backends?",
+        relevant_doc_ids=[],
+    ),
+    EvalQuestion(
+        question="How do I configure SSO with Okta in a Vela free-tier workspace?",
+        relevant_doc_ids=[],
+    ),
+    EvalQuestion(
+        question="Can I use Vela to schedule database migrations automatically on every deploy?",
+        relevant_doc_ids=[],
+    ),
+    EvalQuestion(
+        question="What is the Vela API endpoint for creating a new workspace programmatically?",
+        relevant_doc_ids=[],
+    ),
+]

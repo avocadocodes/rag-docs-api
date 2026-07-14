@@ -213,3 +213,43 @@ def test_stream_endpoint_contains_data_lines(client):
 def test_invalid_mode_returns_400(client):
     resp = _post_query(client, {"question": "test", "mode": "neural"})
     assert resp.status_code == 400
+
+
+def test_query_response_includes_faithfulness(client):
+    resp = _post_query(client, {"question": "What is a mitochondria?"})
+    data = resp.json()
+    assert "faithfulness" in data
+    assert isinstance(data["faithfulness"], float)
+    assert 0.0 <= data["faithfulness"] <= 1.0
+
+
+def test_query_response_includes_abstained(client):
+    resp = _post_query(client, {"question": "What is a mitochondria?"})
+    data = resp.json()
+    assert "abstained" in data
+    assert isinstance(data["abstained"], bool)
+
+
+def test_query_response_includes_claims(client):
+    resp = _post_query(client, {"question": "What is ATP?"})
+    data = resp.json()
+    assert "claims" in data
+    assert isinstance(data["claims"], list)
+
+
+def test_claims_have_required_shape(client):
+    resp = _post_query(client, {"question": "Tell me about cells."})
+    data = resp.json()
+    for claim in data["claims"]:
+        assert "text" in claim
+        assert "label" in claim
+        assert "citation" in claim
+        assert claim["label"] in ("SUPPORTED", "UNSUPPORTED", "NEUTRAL")
+
+
+def test_abstained_answer_replaced_when_threshold_exceeded(client, settings):
+    settings.FAITHFULNESS_THRESHOLD = 1.0
+    resp = _post_query(client, {"question": "What is ATP?"})
+    data = resp.json()
+    if data["abstained"]:
+        assert "I don't have enough grounded evidence" in data["answer"]

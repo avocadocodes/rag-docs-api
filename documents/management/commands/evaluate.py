@@ -1,35 +1,9 @@
-"""
-Management command: python manage.py evaluate
-
-Runs the retrieval evaluation harness.
-
-For each retrieval configuration — vector-only, lexical-only, hybrid,
-hybrid+rerank — it:
-  1. Ingests the evaluation corpus (10 documents about a fictional product).
-  2. Runs each of the 20 evaluation questions through the retriever.
-  3. Computes Recall@1, Recall@3, Recall@5, and MRR.
-  4. Prints a comparison table to stdout.
-
-How to run (Docker Compose):
-    docker compose exec web python manage.py evaluate
-
-The command cleans up the documents it created after the run (using a
-dedicated title prefix) so it does not pollute production data.
-
-This command requires a live PostgreSQL + pgvector database and the real
-sentence-transformers embedder.  It will not produce meaningful results
-against the SQLite/FakeEmbedder test environment.
-"""
-
 from __future__ import annotations
-
 from django.core.management.base import BaseCommand
-from django.db import transaction
-
 from documents.models import Document
 from documents.ingest import ingest_document
-from eval.dataset import DOCUMENTS, QUESTIONS, EvalQuestion
-from eval.metrics import recall_at_k, mrr
+from eval.dataset import DOCUMENTS, QUESTIONS, OUT_OF_CORPUS_QUESTIONS, EvalQuestion
+from eval.metrics import recall_at_k, mrr, faithfulness_score, abstention_accuracy
 from core.embedder import get_embedder
 from query.retrieval import (
     PgvectorRetriever,
@@ -39,11 +13,14 @@ from query.retrieval import (
 )
 
 _EVAL_TITLE_PREFIX = "[eval] "
-_CANDIDATE_K = 20   # pool size; metrics are computed at k=1,3,5 from this list
+_CANDIDATE_K = 20
 
 
 class Command(BaseCommand):
-    help = "Evaluate retrieval quality across configurations (vector/lexical/hybrid/hybrid+rerank)"
+    help = (
+        "Evaluate retrieval quality across configurations (vector/lexical/hybrid/hybrid+rerank). "
+        "Add --faithfulness to also run the answer faithfulness and abstention evaluation."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -51,29 +28,26 @@ class Command(BaseCommand):
             action="store_true",
             help="Do not delete ingested eval documents after the run.",
         )
+        parser.add_argument(
+            "--faithfulness",
+            action="store_true",
+            help="Also run faithfulness and abstention evaluation (requires LLM + NLI model).",
+        )
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.MIGRATE_HEADING("\nVela Eval Corpus — Retrieval Evaluation\n"))
-
         embedder = get_embedder()
 
-        # ------------------------------------------------------------------
-        # 1. Ingest eval corpus
-        # ------------------------------------------------------------------
         self.stdout.write("Ingesting evaluation corpus…")
-        doc_id_map: dict[int, int] = {}   # eval_doc.id → DB primary key
+        doc_id_map: dict[int, int] = {}
 
         try:
             for eval_doc in DOCUMENTS:
                 title = f"{_EVAL_TITLE_PREFIX}{eval_doc.title}"
-                # Reuse existing if already present (idempotent)
                 obj, _ = Document.objects.get_or_create(
                     title=title,
                     defaults={"raw_text": eval_doc.text},
                 )
-                if _.created if hasattr(_, 'created') else False:
-                    pass
-                # Always re-ingest to ensure fresh embeddings
                 obj.raw_text = eval_doc.text
                 obj.save(update_fields=["raw_text"])
                 ingest_document(obj, embedder)
@@ -81,9 +55,6 @@ class Command(BaseCommand):
 
             self.stdout.write(f"  {len(DOCUMENTS)} documents ingested.\n")
 
-            # ------------------------------------------------------------------
-            # 2. Run evaluation per configuration
-            # ------------------------------------------------------------------
             configs = [
                 ("vector-only",     self._run_vector),
                 ("lexical-only",    self._run_lexical),
@@ -101,10 +72,10 @@ class Command(BaseCommand):
                 mrr_score = mrr(result_pairs)
                 rows.append((name, r1, r3, r5, mrr_score))
 
-            # ------------------------------------------------------------------
-            # 3. Print results table
-            # ------------------------------------------------------------------
-            self._print_table(rows)
+            self._print_retrieval_table(rows)
+
+            if options["faithfulness"]:
+                self._run_faithfulness_eval(embedder)
 
         finally:
             if not options["keep"]:
@@ -113,9 +84,64 @@ class Command(BaseCommand):
                 ).delete()
                 self.stdout.write(f"\nCleaned up {deleted} eval document(s).")
 
-    # ------------------------------------------------------------------
-    # Per-configuration runners
-    # ------------------------------------------------------------------
+    def _run_faithfulness_eval(self, embedder):
+        from core.reranker import get_reranker
+        from core.verifier import get_verifier
+        from query.answer import generate_answer
+        from query.verification import AnswerVerification
+
+        self.stdout.write(self.style.MIGRATE_HEADING("\nFaithfulness & Abstention Evaluation\n"))
+
+        retriever = HybridRetriever(candidate_k=_CANDIDATE_K)
+        reranker = get_reranker()
+        verifier = get_verifier()
+        svc = AnswerVerification(verifier=verifier)
+
+        self.stdout.write(f"  Running {len(QUESTIONS)} answerable questions…")
+        all_verdicts: list[str] = []
+        for q in QUESTIONS:
+            emb = embedder.embed(q.question)
+            chunks = retriever.retrieve(emb, q.question, _CANDIDATE_K)
+            chunks = reranker.rerank(q.question, chunks)[:5]
+            ans = generate_answer(q.question, chunks)
+            verification = svc.verify(answer=ans.answer, chunks=chunks)
+            all_verdicts.extend(v["label"] for v in verification.claims)
+
+        avg_faithfulness = faithfulness_score(all_verdicts)
+
+        self.stdout.write(f"  Running {len(OUT_OF_CORPUS_QUESTIONS)} out-of-corpus questions…")
+        abstention_results: list[tuple[bool, bool]] = []
+        for q in OUT_OF_CORPUS_QUESTIONS:
+            emb = embedder.embed(q.question)
+            chunks = retriever.retrieve(emb, q.question, _CANDIDATE_K)
+            chunks = reranker.rerank(q.question, chunks)[:5]
+            ans = generate_answer(q.question, chunks)
+            verification = svc.verify(answer=ans.answer, chunks=chunks)
+            abstention_results.append((verification.abstained, True))
+
+        abstention_acc = abstention_accuracy(abstention_results)
+        abstained_count = sum(1 for ab, _ in abstention_results if ab)
+
+        self._print_faithfulness_table(avg_faithfulness, abstention_acc, abstained_count)
+
+    def _print_faithfulness_table(self, avg_faithfulness, abstention_acc, abstained_count):
+        self.stdout.write("\n")
+        self.stdout.write(self.style.SUCCESS("=" * 55))
+        self.stdout.write(self.style.SUCCESS("Faithfulness & Abstention Results"))
+        self.stdout.write(self.style.SUCCESS("-" * 55))
+        self.stdout.write(f"{'Metric':<40} {'Value':>10}")
+        self.stdout.write(self.style.SUCCESS("-" * 55))
+        self.stdout.write(f"{'Avg faithfulness (answerable Qs)':<40} {avg_faithfulness:>10.3f}")
+        self.stdout.write(f"{'Abstention accuracy (unanswerable Qs)':<40} {abstention_acc:>10.3f}")
+        self.stdout.write(
+            f"{'Abstained on':<40} "
+            f"{abstained_count}/{len(OUT_OF_CORPUS_QUESTIONS)} out-of-corpus Qs"
+        )
+        self.stdout.write(self.style.SUCCESS("=" * 55))
+        self.stdout.write(
+            "\nFaithfulness: fraction of answer claims supported by NLI.\n"
+            "Abstention accuracy: fraction of unanswerable Qs where system correctly abstained.\n"
+        )
 
     def _run_vector(self, embedder, doc_id_map):
         retriever = PgvectorRetriever()
@@ -163,11 +189,7 @@ class Command(BaseCommand):
             pairs.append((retrieved_doc_ids, relevant_db_ids))
         return pairs
 
-    # ------------------------------------------------------------------
-    # Table formatting
-    # ------------------------------------------------------------------
-
-    def _print_table(self, rows):
+    def _print_retrieval_table(self, rows):
         self.stdout.write("\n")
         self.stdout.write(self.style.SUCCESS("=" * 65))
         header = f"{'Configuration':<22} {'R@1':>6} {'R@3':>6} {'R@5':>6} {'MRR':>7}"

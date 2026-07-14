@@ -174,4 +174,14 @@ class HybridRetriever:
     ) -> list[ChunkResult]:
         vector_results = PgvectorRetriever().retrieve(query_embedding, self._candidate_k)
         lexical_results = LexicalRetriever().retrieve(query_text, self._candidate_k)
-        return reciprocal_rank_fusion([vector_results, lexical_results], top_k=top_k)
+        fused = reciprocal_rank_fusion([vector_results, lexical_results], top_k=top_k)
+
+        # RRF orders the results, but its fused score is not on a meaningful scale.
+        # Report the true dense cosine similarity (from the vector arm) instead, so
+        # callers and the relevance gate see a consistent, interpretable score.
+        cosine_by_key = {
+            (c.document_id, c.chunk_index): c.similarity for c in vector_results
+        }
+        for chunk in fused:
+            chunk.similarity = cosine_by_key.get((chunk.document_id, chunk.chunk_index), 0.0)
+        return fused

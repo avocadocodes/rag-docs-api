@@ -71,3 +71,17 @@ def mrr(results: list[tuple[list[int], list[int]]]) -> float:
                 total += 1.0 / rank
                 break
     return total / len(results)
+
+
+def faithfulness_score(verdicts: list[str]) -> float:
+    if not verdicts:
+        return 0.0
+    supported = sum(1 for v in verdicts if v == "SUPPORTED")
+    return supported / len(verdicts)
+
+
+def abstention_accuracy(results: list[tuple[bool, bool]]) -> float:
+    if not results:
+        return 0.0
+    correct = sum(1 for abstained, should in results if abstained == should)
+    return correct / len(results)

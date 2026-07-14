@@ -144,6 +144,8 @@ CHUNK_OVERLAP = config("CHUNK_OVERLAP", default=50, cast=int)
 LLM_API_BASE = config("LLM_API_BASE", default="")
 LLM_API_KEY = config("LLM_API_KEY", default="")
 LLM_MODEL = config("LLM_MODEL", default="")
+FAITHFULNESS_THRESHOLD = config("FAITHFULNESS_THRESHOLD", default=0.5, cast=float)
+NLI_MODEL = config("NLI_MODEL", default="cross-encoder/nli-deberta-v3-small")
 
 # ---------------------------------------------------------------------------
 # Reranker
@@ -174,3 +176,5 @@ else:
 
 # Query result cache TTL in seconds
 QUERY_CACHE_TTL = config("QUERY_CACHE_TTL", default=300, cast=int)
+
+RELEVANCE_THRESHOLD = float(config("RELEVANCE_THRESHOLD", default="0.40"))

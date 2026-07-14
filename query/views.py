@@ -1,23 +1,4 @@
-"""
-Query views.
-
-QueryView        — POST /api/v1/query
-    Supports retrieval mode (vector | lexical | hybrid, default hybrid),
-    optional cross-encoder reranking (rerank=true, default true), and
-    Redis-backed result caching.
-
-QueryStreamView  — POST /api/v1/query/stream
-    Same pipeline as QueryView but streams the answer as Server-Sent Events
-    (text/event-stream).  Each SSE event carries a "data:" line with a text
-    fragment.  A final event with data: [DONE] signals completion.
-
-Cache key: SHA-256 of (question, mode, rerank_flag).  Cache TTL is
-QUERY_CACHE_TTL seconds (default 300).  The cache is a no-op if only
-locmem is configured, which is the case in tests.
-"""
-
 from __future__ import annotations
-
 import hashlib
 import json
 
@@ -32,11 +13,11 @@ from drf_spectacular.utils import extend_schema
 from query.serializers import QueryRequestSerializer, QueryResponseSerializer
 from query.retrieval import PgvectorRetriever, LexicalRetriever, HybridRetriever
 from query.answer import generate_answer, stream_answer
+from query.verification import AnswerVerification, no_evidence_result as _abstain_no_evidence
 from core.embedder import get_embedder
 
 
 def _get_reranker():
-    """Return the reranker instance appropriate for the current environment."""
     backend = getattr(settings, "RERANKER_BACKEND", "real")
     if backend == "fake":
         from core.reranker import FakeReranker  # noqa: PLC0415
@@ -51,16 +32,13 @@ def _cache_key(question: str, mode: str, rerank: bool) -> str:
 
 
 def _retrieve(question: str, query_embedding: list[float], mode: str, top_k: int):
-    """Run the appropriate retriever based on mode."""
     if mode == "vector":
         return PgvectorRetriever().retrieve(query_embedding, top_k)
     if mode == "lexical":
         return LexicalRetriever().retrieve(question, top_k)
-    # hybrid (default)
     return HybridRetriever().retrieve(query_embedding, question, top_k)
 
 
-# Candidate pool size fed to the reranker before trimming to top_k.
 _RERANK_CANDIDATE_K = 20
 
 
@@ -73,19 +51,24 @@ class QueryView(APIView):
         description=(
             "Embeds the question, retrieves the most relevant document chunks "
             "(vector, lexical, or hybrid mode), optionally reranks with a "
-            "cross-encoder, and returns a grounded answer with citations.\n\n"
-            "**Retrieval modes**\n"
-            "- `hybrid` (default): combines dense vector search (pgvector cosine) "
-            "and lexical full-text search (Postgres tsvector) using Reciprocal Rank "
-            "Fusion.\n"
-            "- `vector`: dense cosine similarity only.\n"
-            "- `lexical`: Postgres full-text search only.\n\n"
-            "**Reranking** (`rerank=true`, default): a cross-encoder model scores "
-            "each (query, chunk) pair independently and reorders the candidates. "
-            "More accurate than bi-encoder retrieval but adds ~100 ms latency.\n\n"
-            "**Answer mode** depends on environment:\n"
-            "- `extractive` (default): top chunks concatenated with citation markers.\n"
-            "- `llm`: OpenAI-compatible endpoint if LLM_API_* env vars are set."
+            "cross-encoder, composes an answer, then verifies each claim in "
+            "the answer against the retrieved evidence using NLI.\n\n"
+            "New fields in response:\n"
+            "- faithfulness (float 0-1): fraction of answer claims supported by evidence.\n"
+            "- abstained (bool): true when faithfulness < FAITHFULNESS_THRESHOLD.\n"
+            "- claims (list): per-claim {text, label, citation}.\n\n"
+            "When abstained is true, answer is replaced with an honest "
+            "not enough evidence message; retrieved_chunks are still returned.\n\n"
+            "Retrieval modes\n"
+            "- hybrid (default): combines dense vector search (pgvector cosine) "
+            "and lexical full-text search (Postgres tsvector) using Reciprocal Rank Fusion.\n"
+            "- vector: dense cosine similarity only.\n"
+            "- lexical: Postgres full-text search only.\n\n"
+            "Reranking (rerank=true, default): a cross-encoder model scores "
+            "each (query, chunk) pair independently and reorders the candidates.\n\n"
+            "Answer mode depends on environment:\n"
+            "- extractive (default): top chunks concatenated with citation markers.\n"
+            "- llm: OpenAI-compatible endpoint if LLM_API_* env vars are set."
         ),
     )
     def post(self, request):
@@ -117,14 +100,31 @@ class QueryView(APIView):
         else:
             chunks = chunks[:top_k]
 
-        result = generate_answer(question, chunks)
+        # Relevance gate: if the best-matching chunk is not similar enough to the
+        # question, there is no grounded evidence in the corpus, so abstain rather
+        # than echo an irrelevant passage. (Cosine similarity is only meaningful
+        # for vector/hybrid retrieval; skip the gate when no similarity is present,
+        # e.g. lexical-only mode.)
+        similarities = [c.similarity for c in chunks if getattr(c, "similarity", None) is not None]
+        top_similarity = max(similarities) if similarities else None
+        relevance_threshold = getattr(settings, "RELEVANCE_THRESHOLD", 0.0)
+
+        if not chunks or (top_similarity is not None and top_similarity < relevance_threshold):
+            result = generate_answer(question, chunks)
+            verification = _abstain_no_evidence()
+        else:
+            result = generate_answer(question, chunks)
+            verification = AnswerVerification().verify(answer=result.answer, chunks=chunks)
 
         response_data = {
             "question": question,
-            "answer": result.answer,
+            "answer": verification.answer,
             "mode": result.mode,
             "retrieval_mode": mode,
             "reranked": reranked,
+            "faithfulness": verification.faithfulness,
+            "abstained": verification.abstained,
+            "claims": verification.claims,
             "citations": [
                 {
                     "document_id": c.document_id,
@@ -156,17 +156,8 @@ class QueryStreamView(APIView):
     """
     POST /api/v1/query/stream
 
-    Same retrieval pipeline as QueryView.  Returns a Server-Sent Events stream
-    (Content-Type: text/event-stream).
-
-    Each SSE message is:
-        data: <text fragment>\\n\\n
-
-    The final message is:
-        data: [DONE]\\n\\n
-
-    Clients should concatenate all data fragments (excluding [DONE]) to
-    reconstruct the full answer.
+    Same retrieval pipeline as QueryView. Returns Server-Sent Events stream.
+    Stream carries answer text only; use POST /api/v1/query for full verification results.
     """
 
     @extend_schema(exclude=True)
@@ -194,7 +185,6 @@ class QueryStreamView(APIView):
 
         def event_stream():
             for fragment in stream_answer(question, chunks):
-                # Escape newlines inside a fragment so each SSE message is intact
                 escaped = fragment.replace("\n", "\\n")
                 yield f"data: {escaped}\n\n"
             yield "data: [DONE]\n\n"

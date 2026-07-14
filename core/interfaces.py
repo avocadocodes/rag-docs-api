@@ -7,6 +7,7 @@ the real sentence-transformers model or a live PostgreSQL/pgvector database.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, Sequence
 
 
@@ -50,4 +51,18 @@ class RerankerProtocol(Protocol):
     """Reorders a list of candidate chunks by query-chunk relevance."""
 
     def rerank(self, query: str, chunks: list[ChunkResult]) -> list[ChunkResult]:
+        ...
+
+
+@dataclass
+class ClaimVerdict:
+    label: str  # "SUPPORTED", "UNSUPPORTED", or "NEUTRAL"
+    score: float
+    best_evidence_index: int | None
+
+
+class VerifierProtocol(Protocol):
+    """Checks whether a claim is supported by a list of evidence chunks."""
+
+    def verify(self, claim: str, evidence: list[str]) -> ClaimVerdict:
         ...
