@@ -1,6 +1,12 @@
 # RAG Docs API
 
-A production-grade Retrieval-Augmented Generation backend that turns your document corpus into a searchable, answerable knowledge base.  Upload documents; get semantically grounded answers with citations — and a faithfulness score that tells you how much of the answer is actually supported by the retrieved evidence.
+**In one sentence:** upload your documents, ask questions in plain English, and get answers built *only* from your files, with citations, that the system fact-checks against the sources before returning.
+
+The twist over a normal "chat with your docs": every sentence of the answer is verified against the retrieved evidence, and any claim the sources don't actually support is flagged, with a faithfulness score. It won't confidently make things up.
+
+![Demo: a grounded answer with every claim verified as SUPPORTED, then an abstention on a question the documents don't cover](docs/demo.gif)
+
+*(Run locally with `docker compose up` — not hosted because the embedding + verification models exceed free-tier memory.)*
 
 Three retrieval modes — vector, lexical, and hybrid — plus cross-encoder reranking, NLI-based claim verification, and an evaluation harness that gives you real numbers on which configuration works best for your data.
 
