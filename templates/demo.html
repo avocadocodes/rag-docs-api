@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RAG Docs API — Demo</title>
+  <title>RAG Docs API - Demo</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -352,14 +352,14 @@
         </div>
 
         <div class="faithfulness-bar" id="faithfulness-bar" style="display:none;">
-          <label id="faithfulness-label">Faithfulness: —</label>
+          <label id="faithfulness-label">Faithfulness: -</label>
           <div class="bar-track">
             <div class="bar-fill" id="faithfulness-fill" style="width:0%"></div>
           </div>
         </div>
 
         <div class="abstain-notice" id="abstain-notice" style="display:none;">
-          Low faithfulness — answer replaced with an abstention message.
+          Low faithfulness - answer replaced with an abstention message.
         </div>
 
         <div class="answer-text" id="answer-text"></div>
@@ -594,7 +594,7 @@
           div.className = 'citation-item';
           div.innerHTML = `
             <strong>[${i+1}] ${escapeHtml(c.document_title)}</strong>
-            — chunk ${c.chunk_index}
+            - chunk ${c.chunk_index}
             <span class="citation-score">score: ${c.similarity.toFixed(4)}</span>
           `;
           citationsList.appendChild(div);

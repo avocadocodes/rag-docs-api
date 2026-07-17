@@ -1,7 +1,7 @@
 """
 Reranking implementations.
 
-CrossEncoderReranker — uses a sentence-transformers CrossEncoder model to score
+CrossEncoderReranker - uses a sentence-transformers CrossEncoder model to score
   each (query, chunk) pair independently.  The model is loaded lazily and cached
   for the process lifetime so the first call pays the load cost; subsequent calls
   are cheap.
@@ -10,9 +10,9 @@ CrossEncoderReranker — uses a sentence-transformers CrossEncoder model to scor
   This model was fine-tuned on MS MARCO passage ranking.  It takes a
   (query, passage) pair and returns a relevance score; higher is more relevant.
   It is much slower than bi-encoder retrieval but significantly more accurate
-  for ranking — the cross-attention mechanism sees both texts together.
+  for ranking - the cross-attention mechanism sees both texts together.
 
-FakeReranker — deterministic, no model download.  Scores by lexical overlap
+FakeReranker - deterministic, no model download.  Scores by lexical overlap
   (shared lowercase words) so tests get predictable ordering without torch.
 
 Both satisfy RerankerProtocol from core.interfaces.
@@ -62,7 +62,7 @@ def get_reranker() -> CrossEncoderReranker:
 
 class FakeReranker:
     """
-    Deterministic reranker for tests — no model, no torch.
+    Deterministic reranker for tests - no model, no torch.
 
     Scores each chunk by the number of lowercase words it shares with the
     query.  Ties are broken by original list order (stable sort).

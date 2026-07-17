@@ -3,9 +3,9 @@ Retrieval backends.
 
 Three retrievers are provided:
 
-  PgvectorRetriever — dense cosine-similarity search via pgvector.
-  LexicalRetriever  — Postgres full-text search (websearch_to_tsquery + ts_rank).
-  HybridRetriever   — runs both and fuses results with Reciprocal Rank Fusion (RRF).
+  PgvectorRetriever - dense cosine-similarity search via pgvector.
+  LexicalRetriever  - Postgres full-text search (websearch_to_tsquery + ts_rank).
+  HybridRetriever   - runs both and fuses results with Reciprocal Rank Fusion (RRF).
 
 All retrievers are Postgres-only at runtime; the module is safe to import on
 SQLite because every pgvector / DB-specific import is deferred inside methods.

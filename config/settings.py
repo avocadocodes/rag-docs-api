@@ -6,14 +6,14 @@ All variables have sensible localhost defaults so the project starts without
 any configuration for local development.
 
 Required for production:
-  SECRET_KEY      — Django secret key
-  DATABASE_URL    — postgres://user:pass@host:5432/dbname
+  SECRET_KEY      - Django secret key
+  DATABASE_URL    - postgres://user:pass@host:5432/dbname
                     (or individual PG_* vars below)
 
 Optional LLM integration (leave unset to use extractive-answer fallback):
-  LLM_API_BASE    — OpenAI-compatible base URL, e.g. https://api.openai.com/v1
-  LLM_API_KEY     — API key for the LLM provider
-  LLM_MODEL       — Model name, e.g. gpt-4o-mini
+  LLM_API_BASE    - OpenAI-compatible base URL, e.g. https://api.openai.com/v1
+  LLM_API_KEY     - API key for the LLM provider
+  LLM_MODEL       - Model name, e.g. gpt-4o-mini
 """
 
 import os
@@ -138,7 +138,7 @@ CHUNK_SIZE = config("CHUNK_SIZE", default=500, cast=int)   # approximate tokens
 CHUNK_OVERLAP = config("CHUNK_OVERLAP", default=50, cast=int)
 
 # ---------------------------------------------------------------------------
-# LLM integration (optional — all three must be set to activate)
+# LLM integration (optional - all three must be set to activate)
 # ---------------------------------------------------------------------------
 
 LLM_API_BASE = config("LLM_API_BASE", default="")

@@ -35,7 +35,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.MIGRATE_HEADING("\nVela Eval Corpus — Retrieval Evaluation\n"))
+        self.stdout.write(self.style.MIGRATE_HEADING("\nVela Eval Corpus - Retrieval Evaluation\n"))
         embedder = get_embedder()
 
         self.stdout.write("Ingesting evaluation corpus…")

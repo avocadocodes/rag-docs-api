@@ -6,7 +6,7 @@ The twist over a normal "chat with your docs": every sentence of the answer is v
 
 ![Demo: a grounded answer with every claim verified as SUPPORTED, then an abstention on a question the documents don't cover](docs/demo.gif)
 
-Three retrieval modes — vector, lexical, and hybrid — plus cross-encoder reranking, NLI-based claim verification, and an evaluation harness that gives you real numbers on which configuration works best for your data.
+Three retrieval modes - vector, lexical, and hybrid - plus cross-encoder reranking, NLI-based claim verification, and an evaluation harness that gives you real numbers on which configuration works best for your data.
 
 ---
 
@@ -79,8 +79,8 @@ QUERY FLOW
                               + claims + citations + retrieval_mode
                               + reranked flag
 
-  POST /query/stream  — same pipeline, returns Server-Sent Events
-  Redis cache         — key = SHA-256(question + mode + rerank), TTL 5 min
+  POST /query/stream  - same pipeline, returns Server-Sent Events
+  Redis cache         - key = SHA-256(question + mode + rerank), TTL 5 min
 ```
 
 ---
@@ -113,7 +113,7 @@ The k=60 constant prevents the single top result from dominating when the other 
 
 ## Cross-Encoder Reranking
 
-After fusion, a cross-encoder model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) rescores the candidate pool by attending to query and passage **together** — unlike the bi-encoder used for retrieval, which embeds them independently.  This makes it much more sensitive to exact query terms and their position.
+After fusion, a cross-encoder model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) rescores the candidate pool by attending to query and passage **together** - unlike the bi-encoder used for retrieval, which embeds them independently.  This makes it much more sensitive to exact query terms and their position.
 
 **Pipeline:** retrieve top-20 candidates → rerank → return top-k.
 
@@ -141,7 +141,7 @@ After an answer is generated, each sentence is checked against the retrieved evi
 | `abstained` | bool | True when faithfulness < threshold |
 | `claims` | list | Per-claim `{text, label, citation}` |
 
-**In-process fake verifier** (`VERIFIER_BACKEND=fake`): used in tests and CI — word-overlap heuristic, no model download needed.
+**In-process fake verifier** (`VERIFIER_BACKEND=fake`): used in tests and CI - word-overlap heuristic, no model download needed.
 
 ---
 
@@ -186,13 +186,13 @@ The command:
 
 ### Metrics
 
-**Recall@k** — fraction of questions where at least one correct document appears in the top-k results.  Higher is better; differences of >5 pp are meaningful.
+**Recall@k** - fraction of questions where at least one correct document appears in the top-k results.  Higher is better; differences of >5 pp are meaningful.
 
-**MRR (Mean Reciprocal Rank)** — mean of 1/rank where rank is the position of the first correct result.  MRR = 1.0 means every answer was rank #1; MRR = 0.5 means it was rank #2 on average.
+**MRR (Mean Reciprocal Rank)** - mean of 1/rank where rank is the position of the first correct result.  MRR = 1.0 means every answer was rank #1; MRR = 0.5 means it was rank #2 on average.
 
-**Faithfulness** — fraction of answer claims labelled SUPPORTED by the NLI model across all answerable evaluation questions.
+**Faithfulness** - fraction of answer claims labelled SUPPORTED by the NLI model across all answerable evaluation questions.
 
-**Abstention accuracy** — fraction of out-of-corpus (unanswerable) questions where the system correctly abstained rather than hallucinating an answer.
+**Abstention accuracy** - fraction of out-of-corpus (unanswerable) questions where the system correctly abstained rather than hallucinating an answer.
 
 ### Retrieval Evaluation Results
 
@@ -209,16 +209,16 @@ near-distractor questions).
 | hybrid + rerank  | **0.925**| **1.000**| **1.000**| **0.963** |
 
 **What this shows:**
-- **Lexical (BM25) alone is weak (0.10)** on this set — most questions are
+- **Lexical (BM25) alone is weak (0.10)** on this set - most questions are
   paraphrased or share keywords with distractor documents, so keyword matching
   retrieves the wrong article.
 - **Dense/vector retrieval is strong (R@5 0.975)** but its top-1 ranking is
-  imperfect (R@1 0.75) — the right chunk is retrieved but not always ranked first.
+  imperfect (R@1 0.75) - the right chunk is retrieved but not always ranked first.
 - **Hybrid == vector here**: on this corpus lexical is too weak to improve the
-  RRF fusion. An honest result — hybrid's value shows up on corpora with more
+  RRF fusion. An honest result - hybrid's value shows up on corpora with more
   exact-match/identifier queries, and it costs nothing to keep as a safety net.
 - **Reranking is where the gain is**: the cross-encoder lifts **Recall@1 from
-  0.75 to 0.925** and **MRR from 0.835 to 0.963** — it reorders the retrieved
+  0.75 to 0.925** and **MRR from 0.835 to 0.963** - it reorders the retrieved
   candidates so the answer chunk lands first. This is the precision win that
   matters when only the top result is shown to a user or fed to an LLM.
 
@@ -234,7 +234,7 @@ Measured with `python manage.py evaluate --faithfulness`:
 |--------|-------|
 | Avg faithfulness (answerable questions) | **1.000** |
 
-Every claim in the returned answers was entailed by the retrieved evidence — the
+Every claim in the returned answers was entailed by the retrieved evidence - the
 verifier correctly recognises grounded content and, in LLM mode, flags any
 generated claim that is not supported.
 
@@ -246,12 +246,12 @@ It cannot, on a topically-dense corpus. Measured top cosine similarities:
 - out-of-corpus questions: 0.48 – 0.68
 
 The distributions **overlap completely**, so no similarity threshold separates
-them — a same-domain "unanswerable" question still matches some document. The
+them - a same-domain "unanswerable" question still matches some document. The
 similarity gate is therefore kept only as a coarse filter for clearly off-domain
 queries (threshold 0.40); robust unanswerable-detection is handled by the
 LLM grounded-or-abstain path (LLM mode), where the model is instructed to answer
 only from the provided context and say "I don't know" otherwise. Extractive mode
-is grounded by construction — the answer *is* the retrieved text, so it cannot
+is grounded by construction - the answer *is* the retrieved text, so it cannot
 hallucinate, but it also cannot judge relevance beyond the coarse gate. This
 trade-off is a deliberate, measured design choice, not an oversight.
 
@@ -315,7 +315,7 @@ The first startup downloads the embedding model (~90 MB) into the container.
 | `LLM_API_BASE` | _(unset)_ | OpenAI-compatible base URL |
 | `LLM_API_KEY` | _(unset)_ | API key for LLM provider |
 | `LLM_MODEL` | _(unset)_ | Model name, e.g. `gpt-4o-mini` |
-| `REDIS_URL` | _(unset)_ | Redis DSN — enables Redis cache |
+| `REDIS_URL` | _(unset)_ | Redis DSN - enables Redis cache |
 | `QUERY_CACHE_TTL` | `300` | Cache TTL in seconds |
 
 ---

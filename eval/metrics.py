@@ -1,10 +1,10 @@
 """
 Retrieval evaluation metrics.
 
-recall_at_k  — fraction of questions where at least one relevant document
+recall_at_k  - fraction of questions where at least one relevant document
                appears in the top-k retrieved results.
 
-mrr          — Mean Reciprocal Rank: mean of 1/rank where rank is the
+mrr          - Mean Reciprocal Rank: mean of 1/rank where rank is the
                position of the first relevant document in the result list
                (0.0 if not found).
 

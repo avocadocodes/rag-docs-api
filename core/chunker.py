@@ -5,8 +5,8 @@ Splits a document into overlapping windows measured in whitespace-delimited
 tokens (words). This is fast, requires no external library, and produces
 deterministic results that are easy to test.
 
-    chunk_size    — target window size in tokens (default from settings)
-    chunk_overlap — number of tokens shared between adjacent chunks
+    chunk_size    - target window size in tokens (default from settings)
+    chunk_overlap - number of tokens shared between adjacent chunks
 """
 
 from __future__ import annotations

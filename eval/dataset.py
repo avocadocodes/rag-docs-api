@@ -1,7 +1,7 @@
 """
 Evaluation dataset for the RAG retrieval system.
 
-A corpus about a fictional API product called "Vela" — a fictional
+A corpus about a fictional API product called "Vela" - a fictional
 workflow automation platform.  Each document is a short reference article.
 The questions are paired with the IDs of the document(s) that contain the
 answer (relevant_doc_ids), used to compute Recall@k and MRR.
@@ -10,18 +10,18 @@ Note: relevant_doc_ids here are 1-based indices into DOCUMENTS (not DB primary
 keys).  The management command maps them to actual DB IDs after ingestion.
 
 Topic clusters and near-distractor design:
-  A. Tokens      — user API tokens (1), service-account/CI tokens (2),
+  A. Tokens      - user API tokens (1), service-account/CI tokens (2),
                    webhook signing secrets (3), OAuth client credentials (4)
-  B. Runs        — local vela run (5), scheduled/cron runs (6),
+  B. Runs        - local vela run (5), scheduled/cron runs (6),
                    run retries and backoff (7), run concurrency limits (8),
                    run caching (9)
-  C. Errors      — rate limits (10), usage quotas (11), billing tiers (12),
+  C. Errors      - rate limits (10), usage quotas (11), billing tiers (12),
                    timeout settings (13)
-  D. Config      — vela.yml syntax (14), environment variables (15),
+  D. Config      - vela.yml syntax (14), environment variables (15),
                    secrets management (16), matrix builds (17)
-  E. Integrations— Slack notifications (18), GitHub triggers (19),
+  E. Integrations- Slack notifications (18), GitHub triggers (19),
                    artifact storage (20), deployment targets (21)
-  F. Supporting  — quickstart (22), parallel execution (23),
+  F. Supporting  - quickstart (22), parallel execution (23),
                    workspace admin (24), audit logs (25),
                    self-hosted runners (26), CLI reference (27),
                    REST API reference (28), RBAC / permissions (29),
@@ -59,7 +59,7 @@ DOCUMENTS: list[EvalDocument] = [
             "A new user token inherits the permissions of the user who created it. "
             "By default, user tokens expire after 90 days; this can be extended to "
             "365 days in workspace security settings, but cannot be set to non-expiring. "
-            "Tokens are displayed only once at creation time — store them immediately "
+            "Tokens are displayed only once at creation time - store them immediately "
             "in a password manager or secrets vault. "
             "To rotate a token, delete it and issue a new one; existing token values "
             "cannot be updated or refreshed in-place."
@@ -72,14 +72,14 @@ DOCUMENTS: list[EvalDocument] = [
         text=(
             "Service-account tokens are intended for unattended processes such as CI "
             "pipelines and deployment scripts. Unlike user tokens, service-account tokens "
-            "do not expire automatically — they remain valid until explicitly revoked. "
+            "do not expire automatically - they remain valid until explicitly revoked. "
             "Create a service account under Settings > Service Accounts, then generate "
             "a token for that account. "
             "Service-account tokens carry only the permissions granted to the service "
             "account, keeping the blast radius small if a token is leaked. "
             "Rotate service-account tokens by revoking the current token and issuing a "
             "replacement; both can coexist briefly to allow a zero-downtime rotation. "
-            "Never use a personal user token in a CI pipeline — if the user leaves the "
+            "Never use a personal user token in a CI pipeline - if the user leaves the "
             "organisation, the token is revoked and the pipeline breaks."
         ),
     ),
@@ -121,7 +121,7 @@ DOCUMENTS: list[EvalDocument] = [
             "OAuth tokens are scoped at registration time via a space-separated 'scope' "
             "field (e.g. workflows:read runs:write). "
             "OAuth client credentials are separate from user API tokens and "
-            "service-account tokens — they are not visible in Settings > API Tokens."
+            "service-account tokens - they are not visible in Settings > API Tokens."
         ),
     ),
 
@@ -193,7 +193,7 @@ DOCUMENTS: list[EvalDocument] = [
             "When the limit is reached, new trigger events queue the run rather than "
             "starting it immediately; queued runs start as slots free up. "
             "Set 'run.concurrency: 1' to enforce that only one run of this workflow "
-            "runs at a time — useful for workflows that modify shared state. "
+            "runs at a time - useful for workflows that modify shared state. "
             "Per-workflow concurrency limits are independent of the workspace-level "
             "concurrent-run quota set in your billing plan. "
             "The free tier workspace quota is 3 concurrent runs; Pro is 20; Enterprise "
@@ -356,7 +356,7 @@ DOCUMENTS: list[EvalDocument] = [
             "Secrets are scoped to either the workspace or a specific workflow; "
             "workflow-scoped secrets take precedence over workspace-scoped secrets "
             "with the same name. "
-            "Secret values are redacted from run logs — any output that matches a "
+            "Secret values are redacted from run logs - any output that matches a "
             "secret value is replaced with '***'."
         ),
     ),
@@ -436,7 +436,7 @@ DOCUMENTS: list[EvalDocument] = [
             "GET /runs/{run_id}/artifacts returns a list, and "
             "GET /artifacts/{artifact_id}/download returns the file stream. "
             "Maximum artifact size per run is 10 GB. "
-            "Artifacts are distinct from the run cache — artifacts persist across "
+            "Artifacts are distinct from the run cache - artifacts persist across "
             "workspace storage-limit resets and are not subject to the 7-day cache "
             "expiry."
         ),
@@ -496,7 +496,7 @@ DOCUMENTS: list[EvalDocument] = [
             "group's concurrent batch. "
             "If a dependency fails, downstream steps are skipped unless the dependent "
             "step sets 'continue_on_error: true'. "
-            "Group names have no significance beyond scoping concurrency — they need "
+            "Group names have no significance beyond scoping concurrency - they need "
             "not be unique across the file."
         ),
     ),
@@ -612,7 +612,7 @@ DOCUMENTS: list[EvalDocument] = [
             "Enterprise workspaces can define custom roles with granular permission "
             "sets via Settings > Custom Roles. "
             "Permission changes take effect immediately without requiring a token "
-            "reissue — tokens inherit the current role of the user or service account "
+            "reissue - tokens inherit the current role of the user or service account "
             "that owns them."
         ),
     ),
@@ -781,13 +781,13 @@ QUESTIONS: list[EvalQuestion] = [
         # trigger.webhook.secret key for validating inbound requests.
     ),
     EvalQuestion(
-        "What happens when a scheduled run is already executing and its next scheduled time arrives — does it start a second copy?",
+        "What happens when a scheduled run is already executing and its next scheduled time arrives - does it start a second copy?",
         [6],
         # Doc 8 covers concurrency limits; Doc 7 covers retries; only Doc 6 covers
         # the overlap behaviour specific to cron-scheduled runs.
     ),
     EvalQuestion(
-        "A step that times out — does Vela treat it as a failure for the purposes of triggering automatic retries?",
+        "A step that times out - does Vela treat it as a failure for the purposes of triggering automatic retries?",
         [13],
         # Doc 7 covers retries and mentions 'non-zero exit'; only Doc 13 explicitly
         # states that timed-out runs are treated as failures and trigger retries.

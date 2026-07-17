@@ -2,7 +2,7 @@
 Test settings.
 
 Differences from production settings:
-  - SQLite in-memory database — no PostgreSQL, no pgvector extension needed.
+  - SQLite in-memory database - no PostgreSQL, no pgvector extension needed.
   - Embedding dimensions reduced to 16 to match FakeEmbedder.
   - EMBEDDING_BACKEND = "fake" signals service code to skip model loading.
   - LLM integration disabled.

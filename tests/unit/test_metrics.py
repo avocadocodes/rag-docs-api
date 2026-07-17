@@ -1,5 +1,5 @@
 """
-Tests for eval/metrics.py — recall@k and MRR.
+Tests for eval/metrics.py - recall@k and MRR.
 
 Pure Python, no DB, no model.
 """
@@ -19,7 +19,7 @@ def test_recall_at_k_miss():
 
 
 def test_recall_at_k_hit_beyond_cutoff():
-    """Relevant doc at rank 4 — should not count for k=3."""
+    """Relevant doc at rank 4 - should not count for k=3."""
     results = [([2, 3, 4, 1], [1])]
     assert recall_at_k(results, k=3) == 0.0
     assert recall_at_k(results, k=4) == 1.0

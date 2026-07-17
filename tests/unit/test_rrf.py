@@ -1,7 +1,7 @@
 """
 Tests for Reciprocal Rank Fusion (RRF) fusion logic.
 
-These tests run on pure Python — no DB, no embedder, no torch.
+These tests run on pure Python - no DB, no embedder, no torch.
 """
 
 import pytest
@@ -87,7 +87,7 @@ def test_rrf_known_scores():
     list_b = [c1, c0]
 
     fused = reciprocal_rank_fusion([list_a, list_b], top_k=2)
-    # Both get 1/(k+1) + 1/(k+2) — equal — so order may be either
+    # Both get 1/(k+1) + 1/(k+2) - equal - so order may be either
     score_c0 = fused[0].similarity if fused[0].chunk_index == 0 else fused[1].similarity
     score_c1 = fused[0].similarity if fused[0].chunk_index == 1 else fused[1].similarity
     expected = round(1 / (k + 1) + 1 / (k + 2), 6)

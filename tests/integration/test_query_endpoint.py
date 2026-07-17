@@ -180,8 +180,8 @@ def test_query_cache_hit_returns_same_result(client):
 
 def test_query_cache_hit_skips_retriever(client, patch_embedder_retriever_reranker):
     payload = {"question": "cached question", "mode": "vector", "rerank": False}
-    _post_query(client, payload)   # first call — populates cache
-    _post_query(client, payload)   # second call — should use cache
+    _post_query(client, payload)   # first call - populates cache
+    _post_query(client, payload)   # second call - should use cache
 
     mock_vector = patch_embedder_retriever_reranker["vector"]
     # Retriever should have been called exactly once (first request only)

@@ -15,7 +15,7 @@ import django.db.models.deletion
 
 
 # ---------------------------------------------------------------------------
-# Conditional SQL operations — skip on SQLite (used by the test suite)
+# Conditional SQL operations - skip on SQLite (used by the test suite)
 # ---------------------------------------------------------------------------
 
 class _ConditionalSQL(migrations.RunSQL):

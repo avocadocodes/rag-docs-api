@@ -1,5 +1,5 @@
 """
-Answer generation — pluggable LLM vs extractive fallback, with streaming support.
+Answer generation - pluggable LLM vs extractive fallback, with streaming support.
 
 Design rationale
 ----------------

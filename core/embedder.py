@@ -1,5 +1,5 @@
 """
-Real embedder — wraps sentence-transformers.
+Real embedder - wraps sentence-transformers.
 
 The model is loaded lazily on first use and cached for the process lifetime.
 At import time nothing heavy is loaded, so the module is safe to import in

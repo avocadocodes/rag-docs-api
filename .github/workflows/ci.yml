@@ -24,6 +24,6 @@ jobs:
       - name: Run tests
         env:
           DJANGO_SETTINGS_MODULE: config.test_settings
-          # No DATABASE_URL — test_settings uses SQLite in-memory
-          # No model download — FakeEmbedder is used by all tests
+          # No DATABASE_URL - test_settings uses SQLite in-memory
+          # No model download - FakeEmbedder is used by all tests
         run: python -m pytest tests/ -v --tb=short

@@ -1,5 +1,5 @@
 """
-Migration 0002 — full-text search column.
+Migration 0002 - full-text search column.
 
 Adds a `search_vector` tsvector column to DocumentChunk and a GIN index
 so that Postgres full-text search (`websearch_to_tsquery`) works efficiently.

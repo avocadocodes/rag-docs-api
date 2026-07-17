@@ -1,5 +1,5 @@
 """
-Unit tests for query.answer — extractive fallback and citation assembly.
+Unit tests for query.answer - extractive fallback and citation assembly.
 
 These tests run without a database or network.
 """
